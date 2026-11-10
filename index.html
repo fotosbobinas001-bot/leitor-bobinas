@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07113B"><title>Leitor de Bobinas - Paraibuna</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>*{box-sizing:border-box}body{margin:0;background:#edf2f7;color:#13233b;font:16px Arial,sans-serif}header{background:#07113b;color:white;text-align:center;padding:18px 12px}header h1{font-size:22px;margin:0 0 6px}main{max-width:560px;margin:auto;padding:15px}.card{background:white;border-radius:14px;padding:16px;box-shadow:0 3px 14px #0001}#reader{width:100%;min-height:270px;background:#111;border-radius:10px;overflow:hidden}#reader video{object-fit:cover}#status{font-weight:bold;margin:15px 0;min-height:40px}button{border:0;border-radius:10px;background:#0969da;color:white;font-size:17px;font-weight:bold;padding:15px;width:100%;margin:6px 0}button:disabled{opacity:.45}.secondary{background:#e2e8f0;color:#17233a}input{font-size:24px;letter-spacing:2px;width:100%;padding:12px;border:2px solid #a7b6c9;border-radius:10px;text-align:center}small{display:block;color:#56677c;margin:10px 0}#retorno{display:none;background:#e2f6e8;padding:12px;border-radius:10px;font-weight:bold}</style></head>
+<body><header><h1>📷 LEITOR DE BOBINAS</h1><div>PARAIBUNA EMBALAGENS</div></header><main><div class="card"><div id="reader"></div><p id="status" aria-live="polite">Iniciando câmera...</p><div id="retorno"></div><button id="btnIniciar" onclick="iniciar()" style="display:none">▶ INICIAR CÂMERA</button><button id="btnLanterna" class="secondary" onclick="alternarLanterna()" style="display:none">🔦 LANTERNA</button><button class="secondary" onclick="encerrar()">✕ FECHAR LEITOR</button><small>Aponte a câmera para o código de barras da bobina (10 dígitos).</small><input id="manual" inputmode="numeric" maxlength="10" placeholder="Digitar 10 dígitos"><button class="secondary" onclick="confirmarManual()">CONFIRMAR DIGITAÇÃO</button></div></main>
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+let scanner = null, ativo = false, concluido = false, lanterna = false, ultimo = '', repeticoes = 0;
+const statusEl = document.getElementById('status');
+const valido = n => /^(04|07|08)\d{8}$/.test(n);
+function extrair(texto) { const s=String(texto||'').trim(); const m=s.match(/(?:^|\D)((?:04|07|08)\d{8})(?!\d)/);return m?m[1]:''; }
+function status(s){statusEl.textContent=s;}
+function resultado(texto){
+  if(concluido)return;
+  const numero=extrair(texto); if(!valido(numero))return;
+  if(numero===ultimo)repeticoes++;else{ultimo=numero;repeticoes=1;}
+  if(repeticoes<2)return; // duas leituras consecutivas para evitar falsos positivos
+  concluir(numero);
+}
+async function concluir(numero){
+  if(concluido)return;concluido=true;
+  status('✓ Bobina identificada: '+numero);
+  document.getElementById('retorno').style.display='block';
+  document.getElementById('retorno').textContent='Código: '+numero+' — retornando ao aplicativo...';
+  if(navigator.vibrate)navigator.vibrate(120);
+  await parar();
+  if(window.opener && !window.opener.closed){
+    window.opener.postMessage({tipo:'PARAIBUNA_BOBINA_LIDA',token,numero},'*');
+    setTimeout(()=>window.close(),700);
+  }else{
+    status('Código identificado: '+numero+'. A janela original não está disponível; copie o número manualmente.');
+  }
+}
+async function iniciar(){
+  if(ativo||concluido)return;
+  document.getElementById('btnIniciar').style.display='none';
+  try{
+    if(typeof Html5Qrcode==='undefined')throw new Error('Biblioteca de leitura indisponível. Verifique a internet.');
+    scanner = new Html5Qrcode('reader', {verbose:false});
+    const config={fps:12,qrbox:(w,h)=>({width:Math.min(320,Math.floor(w*.86)),height:Math.min(160,Math.floor(h*.55))}),aspectRatio:1.777778,formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8]};
+    await scanner.start({facingMode:'environment'},config,resultado,()=>{});
+    ativo=true;status('Aponte para o código de barras. A leitura será automática.');
+    try{const caps=scanner.getRunningTrackCapabilities();if(caps.torch)document.getElementById('btnLanterna').style.display='block';}catch(e){}
+  }catch(e){status('Não foi possível iniciar a câmera: '+(e.message||e));document.getElementById('btnIniciar').style.display='block';try{await parar()}catch(_){} }
+}
+async function parar(){if(scanner){try{if(ativo || scanner.getState()===2)await scanner.stop()}catch(e){}try{scanner.clear()}catch(e){}}scanner=null;ativo=false;}
+async function alternarLanterna(){if(!scanner)return;try{lanterna=!lanterna;await scanner.applyVideoConstraints({advanced:[{torch:lanterna}]});document.getElementById('btnLanterna').textContent=lanterna?'🔦 DESLIGAR LANTERNA':'🔦 LANTERNA';}catch(e){lanterna=false;status('Lanterna indisponível neste aparelho.');}}
+function confirmarManual(){const n=document.getElementById('manual').value.replace(/\D/g,'');if(!valido(n)){status('Digite 10 dígitos começando por 04, 07 ou 08.');return;}concluir(n);}
+async function encerrar(){await parar();window.close();status('Feche esta aba para retornar ao aplicativo.');}
+window.addEventListener('pagehide',()=>{parar()});
+iniciar();
+</script></body></html>
